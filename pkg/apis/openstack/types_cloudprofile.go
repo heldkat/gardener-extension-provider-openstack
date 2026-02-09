@@ -7,9 +7,10 @@ package openstack
 import (
 	"fmt"
 
+	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/gardener/gardener-extension-provider-openstack/pkg/utils"
+	"github.com/gardener/gardener-extension-provider-openstack/pkg/openstack/utils"
 )
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -46,9 +47,6 @@ type CloudProfileConfig struct {
 	IgnoreVolumeAZ *bool
 	// NodeVolumeAttachLimit specifies how many volumes can be attached to a node.
 	NodeVolumeAttachLimit *int32
-	// UseOctavia specifies whether the OpenStack Octavia network load balancing is used.
-	// Deprecated: This field will be removed in future release.
-	UseOctavia *bool
 	// UseSNAT specifies whether S-NAT is supposed to be used for the Gardener managed OpenStack router.
 	UseSNAT *bool
 	// ServerGroupPolicies specify the allowed server group policies for worker groups.
@@ -179,8 +177,28 @@ type MachineImageVersion struct {
 	Version string
 	// Image is the name of the image.
 	Image string
-	// Regions is an optional mapping to the correct Image ID for the machine image in the supported regions.
+	// TODO @Roncossek add "// deprecated" once openstack cloudprofiles are migrated to use CapabilityFlavors
+
+	// Regions is a mapping to the correct ID for the machine image in the supported regions.
 	Regions []RegionIDMapping
+	// CapabilityFlavors is grouping of region Ids by capabilities.
+	CapabilityFlavors []MachineImageFlavor
+}
+
+// MachineImageFlavor groups all RegionIDMappings for a specific set of capabilities.
+type MachineImageFlavor struct {
+	// Regions is a mapping to the correct ID for the machine image in the supported regions.
+	Regions []RegionIDMapping
+
+	Image string
+
+	// Capabilities that are supported by the IDs in this set.
+	Capabilities gardencorev1beta1.Capabilities
+}
+
+// GetCapabilities returns the Capabilities of a MachineImageFlavor
+func (cs MachineImageFlavor) GetCapabilities() gardencorev1beta1.Capabilities {
+	return cs.Capabilities
 }
 
 // RegionIDMapping is a mapping to the correct ID for the machine image in the given region.

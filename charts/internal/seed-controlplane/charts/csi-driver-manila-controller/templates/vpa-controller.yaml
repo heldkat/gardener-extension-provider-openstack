@@ -9,19 +9,25 @@ spec:
     containerPolicies:
     - containerName: openstack-csi-manila-driver
       controlledValues: RequestsOnly
+      controlledResources: ["memory"]
     - containerName: openstack-csi-manila-nfs-driver
       controlledValues: RequestsOnly
+      controlledResources: ["memory"]
     - containerName: openstack-csi-manila-provisioner
       controlledValues: RequestsOnly
+      controlledResources: ["memory"]
     - containerName: openstack-csi-manila-snapshotter
       controlledValues: RequestsOnly
+      controlledResources: ["memory"]
     - containerName: openstack-csi-manila-resizer
       controlledValues: RequestsOnly
+      controlledResources: ["memory"]
     - containerName: openstack-csi-manila-liveness-probe
       controlledValues: RequestsOnly
+      controlledResources: ["memory"]
   targetRef:
     apiVersion: apps/v1
     kind: Deployment
     name: csi-driver-manila-controller
   updatePolicy:
-    updateMode: Auto
+    updateMode: Recreate

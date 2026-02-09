@@ -21,7 +21,6 @@ import (
 	openstackv1alpha1 "github.com/gardener/gardener-extension-provider-openstack/pkg/apis/openstack/v1alpha1"
 	"github.com/gardener/gardener-extension-provider-openstack/pkg/controller/infrastructure/infraflow/access"
 	"github.com/gardener/gardener-extension-provider-openstack/pkg/controller/infrastructure/infraflow/shared"
-	infrainternal "github.com/gardener/gardener-extension-provider-openstack/pkg/internal/infrastructure"
 	osclient "github.com/gardener/gardener-extension-provider-openstack/pkg/openstack/client"
 )
 
@@ -77,17 +76,17 @@ type Opts struct {
 
 // FlowContext contains the logic to reconcile or delete the infrastructure.
 type FlowContext struct {
-	state              shared.Whiteboard
-	client             client.Client
-	log                logr.Logger
-	infra              *extensionsv1alpha1.Infrastructure
-	config             *openstackapi.InfrastructureConfig
-	cloudProfileConfig *openstackapi.CloudProfileConfig
-	networking         osclient.Networking
-	loadbalancing      osclient.Loadbalancing
-	sharedFilesystem   osclient.SharedFilesystem
-	access             access.NetworkingAccess
-	compute            osclient.Compute
+	state                  shared.Whiteboard
+	client                 client.Client
+	openstackClientFactory osclient.Factory
+	log                    logr.Logger
+	infra                  *extensionsv1alpha1.Infrastructure
+	config                 *openstackapi.InfrastructureConfig
+	cloudProfileConfig     *openstackapi.CloudProfileConfig
+	networking             osclient.Networking
+	loadbalancing          osclient.Loadbalancing
+	access                 access.NetworkingAccess
+	compute                osclient.Compute
 
 	*shared.BasicFlowContext
 }
@@ -115,11 +114,6 @@ func NewFlowContext(opts Opts) (*FlowContext, error) {
 	if err != nil {
 		return nil, err
 	}
-	sharedFilesytem, err := opts.ClientFactory.SharedFilesystem(osclient.WithRegion(opts.Infrastructure.Spec.Region))
-	if err != nil {
-		return nil, err
-	}
-
 	infraConfig, err := helper.InfrastructureConfigFromInfrastructure(opts.Infrastructure)
 	if err != nil {
 		return nil, err
@@ -130,23 +124,51 @@ func NewFlowContext(opts Opts) (*FlowContext, error) {
 	}
 
 	flowContext := &FlowContext{
-		state:              whiteboard,
-		infra:              opts.Infrastructure,
-		config:             infraConfig,
-		cloudProfileConfig: cloudProfileConfig,
-		networking:         networking,
-		loadbalancing:      loadbalancing,
-		access:             access,
-		compute:            compute,
-		sharedFilesystem:   sharedFilesytem,
-		log:                opts.Log,
-		client:             opts.Client,
+		state:                  whiteboard,
+		infra:                  opts.Infrastructure,
+		config:                 infraConfig,
+		cloudProfileConfig:     cloudProfileConfig,
+		networking:             networking,
+		loadbalancing:          loadbalancing,
+		access:                 access,
+		compute:                compute,
+		log:                    opts.Log,
+		client:                 opts.Client,
+		openstackClientFactory: opts.ClientFactory,
 	}
 	return flowContext, nil
 }
 
 func (fctx *FlowContext) persistState(ctx context.Context) error {
-	return infrainternal.PatchProviderStatusAndState(ctx, fctx.client, fctx.infra, nil, fctx.computeInfrastructureState())
+	return PatchProviderStatusAndState(ctx, fctx.client, fctx.infra, nil, fctx.computeInfrastructureState())
+}
+
+// PatchProviderStatusAndState patches the infrastructure status with the given provider specific status and state.
+func PatchProviderStatusAndState(
+	ctx context.Context,
+	runtimeClient client.Client,
+	infra *extensionsv1alpha1.Infrastructure,
+	status *openstackv1alpha1.InfrastructureStatus,
+	state *runtime.RawExtension,
+) error {
+	patch := client.MergeFrom(infra.DeepCopy())
+	if status != nil {
+		infra.Status.ProviderStatus = &runtime.RawExtension{Object: status}
+		infra.Status.EgressCIDRs = ComputeEgressCIDRs(status.Networks.Router.ExternalFixedIPs)
+	}
+
+	if state != nil {
+		infra.Status.State = state
+	}
+
+	// do not make a patch request if nothing has changed.
+	if data, err := patch.Data(infra); err != nil {
+		return fmt.Errorf("failed getting patch data for infra %s: %w", infra.Name, err)
+	} else if string(data) == `{}` {
+		return nil
+	}
+
+	return runtimeClient.Status().Patch(ctx, infra, patch)
 }
 
 func (fctx *FlowContext) computeInfrastructureState() *runtime.RawExtension {
@@ -163,7 +185,10 @@ func (fctx *FlowContext) computeInfrastructureState() *runtime.RawExtension {
 
 func (fctx *FlowContext) computeInfrastructureStatus() *openstackv1alpha1.InfrastructureStatus {
 	status := &openstackv1alpha1.InfrastructureStatus{
-		TypeMeta: infrainternal.StatusTypeMeta,
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: openstackv1alpha1.SchemeGroupVersion.String(),
+			Kind:       "InfrastructureStatus",
+		},
 	}
 
 	status.Networks.FloatingPool.ID = ptr.Deref(fctx.state.Get(IdentifierFloatingNetwork), "")

@@ -5,6 +5,7 @@
 package v1alpha1
 
 import (
+	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -53,10 +54,6 @@ type CloudProfileConfig struct {
 	// NodeVolumeAttachLimit specifies how many volumes can be attached to a node.
 	// +optional
 	NodeVolumeAttachLimit *int32 `json:"nodeVolumeAttachLimit,omitempty"`
-	// UseOctavia specifies whether the OpenStack Octavia network load balancing is used.
-	// Deprecated: This field will be removed in future release.
-	// +optional
-	UseOctavia *bool `json:"useOctavia,omitempty"`
 	// UseSNAT specifies whether S-NAT is supposed to be used for the Gardener managed OpenStack router.
 	// +optional
 	UseSNAT *bool `json:"useSNAT,omitempty"`
@@ -158,8 +155,27 @@ type MachineImageVersion struct {
 	Version string `json:"version"`
 	// Image is the name of the image.
 	Image string `json:"image,omitempty"`
+	// TODO @Riesop add "// deprecated" once openstack cloudprofiles are migrated to use CapabilityFlavors
+
 	// Regions is an optional mapping to the correct Image ID for the machine image in the supported regions.
 	Regions []RegionIDMapping `json:"regions,omitempty"`
+	// CapabilityFlavors is grouping of region AMIs by capabilities.
+	CapabilityFlavors []MachineImageFlavor `json:"capabilityFlavors,omitempty"`
+}
+
+// MachineImageFlavor groups all RegionAMIMappings for a specific set of capabilities.
+type MachineImageFlavor struct {
+	// Regions is a mapping to the correct Image ID for the machine image in the supported regions.
+	Regions []RegionIDMapping `json:"regions,omitempty"`
+	// Image is the name of the image.
+	Image string `json:"image,omitempty"`
+	// Capabilities that are supported by the Image ID in this set.
+	Capabilities gardencorev1beta1.Capabilities `json:"capabilities,omitempty"`
+}
+
+// GetCapabilities returns the Capabilities of a MachineImageFlavor
+func (cs *MachineImageFlavor) GetCapabilities() gardencorev1beta1.Capabilities {
+	return cs.Capabilities
 }
 
 // RegionIDMapping is a mapping to the correct ID for the machine image in the given region.
@@ -168,6 +184,8 @@ type RegionIDMapping struct {
 	Name string `json:"name"`
 	// ID is the ID for the machine image in the given region.
 	ID string `json:"id"`
+	// TODO @Riesop add "// deprecated" once openstack cloudprofiles are migrated to use CapabilityFlavors
+
 	// Architecture is the CPU architecture of the machine image
 	// +optional
 	Architecture *string `json:"architecture,omitempty"`

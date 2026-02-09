@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gardener/gardener/extensions/pkg/controller"
+	extensionscontroller "github.com/gardener/gardener/extensions/pkg/controller"
 	"github.com/gardener/gardener/extensions/pkg/controller/worker/genericactuator"
 	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
 	extensionsv1alpha1 "github.com/gardener/gardener/pkg/apis/extensions/v1alpha1"
@@ -65,12 +65,15 @@ var _ = Describe("#MachineDependencies", func() {
 
 	Context("#ServerGroups", func() {
 		var (
-			clusterName = "shoot--foobar--openstack"
-			namespace   = clusterName
+			namespace   string
+			technicalID string
 			w           *extensionsv1alpha1.Worker
 		)
 
 		BeforeEach(func() {
+			namespace = "control-plane-namespace"
+			technicalID = "shoot--foobar--openstack"
+
 			w = &extensionsv1alpha1.Worker{
 				ObjectMeta: metav1.ObjectMeta{
 					Namespace: namespace,
@@ -85,9 +88,8 @@ var _ = Describe("#MachineDependencies", func() {
 					cl,
 					scheme,
 					nil,
-					"",
 					w,
-					newClusterWithDefaultCloudProfileConfig(clusterName),
+					newClusterWithDefaultCloudProfileConfig(namespace, technicalID),
 					osFactory,
 				)
 
@@ -120,16 +122,15 @@ var _ = Describe("#MachineDependencies", func() {
 					cl,
 					scheme,
 					nil,
-					"",
 					w,
-					newClusterWithDefaultCloudProfileConfig(clusterName),
+					newClusterWithDefaultCloudProfileConfig(namespace, technicalID),
 					osFactory,
 				)
 
-				computeClient.EXPECT().CreateServerGroup(ctx, prefixMatch(serverGroupPrefix(clusterName, pool1)), policy).Return(&servergroups.ServerGroup{
+				computeClient.EXPECT().CreateServerGroup(ctx, prefixMatch(serverGroupPrefix(technicalID, pool1)), policy).Return(&servergroups.ServerGroup{
 					ID: serverGroupID1,
 				}, nil)
-				computeClient.EXPECT().CreateServerGroup(ctx, prefixMatch(serverGroupPrefix(clusterName, pool2)), policy).Return(&servergroups.ServerGroup{
+				computeClient.EXPECT().CreateServerGroup(ctx, prefixMatch(serverGroupPrefix(technicalID, pool2)), policy).Return(&servergroups.ServerGroup{
 					ID: serverGroupID2,
 				}, nil)
 				expectStatusUpdateToSucceed(ctx, statusCl)
@@ -165,13 +166,12 @@ var _ = Describe("#MachineDependencies", func() {
 					cl,
 					scheme,
 					nil,
-					"",
 					w,
-					newClusterWithDefaultCloudProfileConfig(clusterName),
+					newClusterWithDefaultCloudProfileConfig(namespace, technicalID),
 					osFactory,
 				)
 
-				computeClient.EXPECT().CreateServerGroup(ctx, prefixMatch(serverGroupPrefix(clusterName, poolName)), policy).Return(&servergroups.ServerGroup{
+				computeClient.EXPECT().CreateServerGroup(ctx, prefixMatch(serverGroupPrefix(technicalID, poolName)), policy).Return(&servergroups.ServerGroup{
 					ID: "id",
 				}, nil)
 				expectStatusUpdateToSucceed(ctx, statusCl)
@@ -192,7 +192,7 @@ var _ = Describe("#MachineDependencies", func() {
 					ID:       "id",
 					Policies: []string{"foo"},
 				}, nil)
-				computeClient.EXPECT().CreateServerGroup(ctx, prefixMatch(serverGroupPrefix(clusterName, poolName)), newPolicy).Return(&servergroups.ServerGroup{
+				computeClient.EXPECT().CreateServerGroup(ctx, prefixMatch(serverGroupPrefix(technicalID, poolName)), newPolicy).Return(&servergroups.ServerGroup{
 					ID: "new-id",
 				}, nil)
 				expectStatusUpdateToSucceed(ctx, statusCl)
@@ -216,7 +216,7 @@ var _ = Describe("#MachineDependencies", func() {
 					ctx             = context.Background()
 					poolName        = "pool"
 					serverGroupID   = "id"
-					serverGroupName = clusterName + "-" + poolName + "-" + "rand"
+					serverGroupName = technicalID + "-" + poolName + "-" + "rand"
 				)
 
 				w.Status.ProviderStatus = &runtime.RawExtension{
@@ -237,9 +237,8 @@ var _ = Describe("#MachineDependencies", func() {
 					cl,
 					scheme,
 					nil,
-					"",
 					w,
-					newClusterWithDefaultCloudProfileConfig(clusterName),
+					newClusterWithDefaultCloudProfileConfig(namespace, technicalID),
 					osFactory,
 				)
 
@@ -267,10 +266,10 @@ var _ = Describe("#MachineDependencies", func() {
 					policy   = "foo"
 
 					serverGroupID   = "id"
-					serverGroupName = clusterName + "-" + poolName + "-" + "rand"
+					serverGroupName = technicalID + "-" + poolName + "-" + "rand"
 
 					oldServerGroupID   = "old-id"
-					oldServerGroupName = clusterName + "-" + poolName + "-" + "old-rand"
+					oldServerGroupName = technicalID + "-" + poolName + "-" + "old-rand"
 				)
 
 				w.Spec.Pools = append(w.Spec.Pools, *(newWorkerPoolWithPolicy("pool", &policy)))
@@ -292,9 +291,8 @@ var _ = Describe("#MachineDependencies", func() {
 					cl,
 					scheme,
 					nil,
-					"",
 					w,
-					newClusterWithDefaultCloudProfileConfig(clusterName),
+					newClusterWithDefaultCloudProfileConfig(namespace, technicalID),
 					osFactory,
 				)
 
@@ -355,9 +353,8 @@ var _ = Describe("#MachineDependencies", func() {
 					cl,
 					scheme,
 					nil,
-					"",
 					w,
-					newClusterWithDefaultCloudProfileConfig(clusterName),
+					newClusterWithDefaultCloudProfileConfig(namespace, technicalID),
 					osFactory,
 				)
 
@@ -389,7 +386,7 @@ var _ = Describe("#MachineDependencies", func() {
 					ctx             = context.Background()
 					poolName        = "pool"
 					serverGroupID   = "id"
-					serverGroupName = clusterName + "-" + poolName + "-" + "rand"
+					serverGroupName = technicalID + "-" + poolName + "-" + "rand"
 				)
 
 				w.Status.ProviderStatus = &runtime.RawExtension{
@@ -410,9 +407,8 @@ var _ = Describe("#MachineDependencies", func() {
 					cl,
 					scheme,
 					nil,
-					"",
 					w,
-					newClusterWithDefaultCloudProfileConfig(clusterName),
+					newClusterWithDefaultCloudProfileConfig(namespace, technicalID),
 					osFactory,
 				)
 
@@ -440,10 +436,10 @@ var _ = Describe("#MachineDependencies", func() {
 					policy   = "foo"
 
 					serverGroupID   = "id"
-					serverGroupName = clusterName + "-" + poolName + "-" + "rand"
+					serverGroupName = technicalID + "-" + poolName + "-" + "rand"
 
 					oldServerGroupID   = "old-id"
-					oldServerGroupName = clusterName + "-" + poolName + "-" + "old-rand"
+					oldServerGroupName = technicalID + "-" + poolName + "-" + "old-rand"
 				)
 
 				w.Spec.Pools = append(w.Spec.Pools, *(newWorkerPoolWithPolicy("pool", &policy)))
@@ -465,9 +461,8 @@ var _ = Describe("#MachineDependencies", func() {
 					cl,
 					scheme,
 					nil,
-					"",
 					w,
-					newClusterWithDefaultCloudProfileConfig(clusterName),
+					newClusterWithDefaultCloudProfileConfig(namespace, technicalID),
 					osFactory,
 				)
 
@@ -528,9 +523,8 @@ var _ = Describe("#MachineDependencies", func() {
 					cl,
 					scheme,
 					nil,
-					"",
 					w,
-					newClusterWithDefaultCloudProfileConfig(clusterName),
+					newClusterWithDefaultCloudProfileConfig(namespace, technicalID),
 					osFactory,
 				)
 
@@ -584,7 +578,7 @@ func newWorkerPoolWithPolicy(name string, policy *string) *extensionsv1alpha1.Wo
 	return pool
 }
 
-func newClusterWithDefaultCloudProfileConfig(name string) *controller.Cluster {
+func newClusterWithDefaultCloudProfileConfig(name, technicalID string) *extensionscontroller.Cluster {
 	cloudProfileConfig := &api.CloudProfileConfig{
 		ServerGroupPolicies: []string{"foo", "bar"},
 	}
@@ -592,7 +586,7 @@ func newClusterWithDefaultCloudProfileConfig(name string) *controller.Cluster {
 	cpJson, err := json.Marshal(cloudProfileConfig)
 	Expect(err).NotTo(HaveOccurred())
 
-	return &controller.Cluster{
+	return &extensionscontroller.Cluster{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
 		},
@@ -603,8 +597,12 @@ func newClusterWithDefaultCloudProfileConfig(name string) *controller.Cluster {
 				},
 			},
 		},
-		Seed:  nil,
-		Shoot: nil,
+		Seed: nil,
+		Shoot: &gardencorev1beta1.Shoot{
+			Status: gardencorev1beta1.ShootStatus{
+				TechnicalID: technicalID,
+			},
+		},
 	}
 }
 

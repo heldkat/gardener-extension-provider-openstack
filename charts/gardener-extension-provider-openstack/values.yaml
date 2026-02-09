@@ -11,7 +11,7 @@ resources: {}
 vpa:
   enabled: true
   updatePolicy:
-    updateMode: "Auto"
+    updateMode: "Recreate"
 
 metricsPort: "{{ index .Values.usablePorts 0 }}"
 healthPort: "{{ index .Values.usablePorts 2 }}"
@@ -32,8 +32,8 @@ controllers:
     concurrentSyncs: 5
   healthcheck:
     concurrentSyncs: 5
-  heartbeat: 
-    renewIntervalSeconds: 30 
+  heartbeat:
+    renewIntervalSeconds: 30
   infrastructure:
     concurrentSyncs: 5
   worker:
@@ -82,9 +82,20 @@ config:
       capacity: 25Gi
       provisioner: kubernetes.io/cinder
       volumeBindingMode: WaitForFirstConsumer
- #      parameters:
- #        type: volumetype-nameOrID
-  # -- Deprecated, should be configured via CloudProfile
+#       parameters:
+#         type: volumetype-nameOrID
+#     events:
+#       # Use a different className than `storage.className` to create a separate StorageClass.
+#       # If it is the same, the existing StorageClass is reused (and a different capacity can still be configured).
+#       className: gardener.cloud-fast-events
+#       capacity: 5Gi
+#       provisioner: kubernetes.io/cinder
+#       volumeBindingMode: WaitForFirstConsumer
+#       parameters:
+#         type: volumetype-nameOrID
+#     backup:
+#       schedule: "0 */1 * * *"
+# -- Deprecated, should be configured via CloudProfile
   bastionConfig:
     imageRef: ""
     flavorRef: ""
@@ -98,7 +109,11 @@ gardener:
 # runtimeCluster:
 #   enabled: false
 #   priorityClassName: gardener-garden-system-200
-# autonomousShootCluster: false
+# selfHostedShootCluster: false
+
+# logging:
+#   level: info # info | debug | error - omitting defaults to "info"
+#   format: json # text | json - omitting defaults to "json"
 
 usablePorts:
 - 8080  # metrics

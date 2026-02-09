@@ -205,19 +205,6 @@ int32
 </tr>
 <tr>
 <td>
-<code>useOctavia</code></br>
-<em>
-bool
-</em>
-</td>
-<td>
-<em>(Optional)</em>
-<p>UseOctavia specifies whether the OpenStack Octavia network load balancing is used.
-Deprecated: This field will be removed in future release.</p>
-</td>
-</tr>
-<tr>
-<td>
 <code>useSNAT</code></br>
 <em>
 bool
@@ -1088,6 +1075,71 @@ string
 <p>Architecture is the CPU architecture of the machine image</p>
 </td>
 </tr>
+<tr>
+<td>
+<code>capabilities</code></br>
+<em>
+github.com/gardener/gardener/pkg/apis/core/v1beta1.Capabilities
+</em>
+</td>
+<td>
+<p>Capabilities of the machine image.</p>
+</td>
+</tr>
+</tbody>
+</table>
+<h3 id="openstack.provider.extensions.gardener.cloud/v1alpha1.MachineImageFlavor">MachineImageFlavor
+</h3>
+<p>
+(<em>Appears on:</em>
+<a href="#openstack.provider.extensions.gardener.cloud/v1alpha1.MachineImageVersion">MachineImageVersion</a>)
+</p>
+<p>
+<p>MachineImageFlavor groups all RegionAMIMappings for a specific set of capabilities.</p>
+</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>
+<code>regions</code></br>
+<em>
+<a href="#openstack.provider.extensions.gardener.cloud/v1alpha1.RegionIDMapping">
+[]RegionIDMapping
+</a>
+</em>
+</td>
+<td>
+<p>Regions is a mapping to the correct Image ID for the machine image in the supported regions.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>image</code></br>
+<em>
+string
+</em>
+</td>
+<td>
+<p>Image is the name of the image.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>capabilities</code></br>
+<em>
+github.com/gardener/gardener/pkg/apis/core/v1beta1.Capabilities
+</em>
+</td>
+<td>
+<p>Capabilities that are supported by the Image ID in this set.</p>
+</td>
+</tr>
 </tbody>
 </table>
 <h3 id="openstack.provider.extensions.gardener.cloud/v1alpha1.MachineImageVersion">MachineImageVersion
@@ -1140,6 +1192,19 @@ string
 </td>
 <td>
 <p>Regions is an optional mapping to the correct Image ID for the machine image in the supported regions.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>capabilityFlavors</code></br>
+<em>
+<a href="#openstack.provider.extensions.gardener.cloud/v1alpha1.MachineImageFlavor">
+[]MachineImageFlavor
+</a>
+</em>
+</td>
+<td>
+<p>CapabilityFlavors is grouping of region AMIs by capabilities.</p>
 </td>
 </tr>
 </tbody>
@@ -1459,6 +1524,7 @@ string
 </h3>
 <p>
 (<em>Appears on:</em>
+<a href="#openstack.provider.extensions.gardener.cloud/v1alpha1.MachineImageFlavor">MachineImageFlavor</a>, 
 <a href="#openstack.provider.extensions.gardener.cloud/v1alpha1.MachineImageVersion">MachineImageVersion</a>)
 </p>
 <p>

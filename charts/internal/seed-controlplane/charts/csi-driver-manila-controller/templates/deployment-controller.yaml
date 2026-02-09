@@ -58,6 +58,10 @@ spec:
             {{- range $userAgentHeader := .Values.userAgentHeaders }}
             - --user-agent={{ $userAgentHeader }}
             {{- end }}
+            {{- if .Values.highQpsMode }}
+            - --kube-api-qps=100
+            - --kube-api-burst=200
+            {{- end }}
           env:
             - name: DRIVER_NAME
               value: nfs.manila.csi.openstack.org
@@ -153,6 +157,8 @@ spec:
             - --leader-election
             - --leader-election-namespace=kube-system
             - --timeout={{ .Values.timeout }}
+            - --kube-api-qps=100
+            - --kube-api-burst=200
             - v=5
 {{- if .Values.resources.provisioner }}
           resources:
@@ -176,6 +182,8 @@ spec:
             - --leader-election-namespace=kube-system
             - --timeout={{ .Values.timeout }}
             - --snapshot-name-prefix={{ .Release.Namespace }}
+            - --kube-api-qps=100
+            - --kube-api-burst=200
 {{- if .Values.resources.snapshotter }}
           resources:
 {{ toYaml .Values.resources.snapshotter | indent 12 }}
@@ -199,6 +207,8 @@ spec:
             - --timeout={{ .Values.timeout }}
             - --handle-volume-inuse-error=false
             - --v=3
+            - --kube-api-qps=100
+            - --kube-api-burst=200
 {{- if .Values.resources.resizer }}
           resources:
 {{ toYaml .Values.resources.resizer | indent 12 }}

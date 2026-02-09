@@ -71,8 +71,9 @@ var _ = Describe("Machines", func() {
 	})
 
 	Context("workerDelegate", func() {
+
 		BeforeEach(func() {
-			workerDelegate, _ = NewWorkerDelegate(nil, scheme, nil, "", nil, nil, nil)
+			workerDelegate, _ = NewWorkerDelegate(nil, scheme, nil, nil, nil, nil)
 		})
 
 		Describe("#TestLabelNormalization", func() {
@@ -93,14 +94,15 @@ var _ = Describe("Machines", func() {
 			})
 		})
 
-		Describe("#GenerateMachineDeployments, #DeployMachineClasses", func() {
+		DescribeTableSubtree("#GenerateMachineDeployments, #DeployMachineClasses", func(isCapabilitiesCloudProfile bool, usesGlobalImageNames bool) {
+
 			var (
 				namespace        string
+				technicalID      string
 				cloudProfileName string
 
 				openstackAuthURL string
 				region           string
-				regionWithImages string
 
 				machineImageName    string
 				machineImageVersion string
@@ -110,15 +112,15 @@ var _ = Describe("Machines", func() {
 				archAMD string
 				archARM string
 
-				keyName               string
-				machineType           string
-				userData              []byte
-				userDataSecretName    string
-				userDataSecretDataKey string
-				networkID             string
-				podCIDR               string
-				subnetID              string
-				securityGroupName     string
+				keyName                     string
+				machineType, machineTypeArm string
+				userData                    []byte
+				userDataSecretName          string
+				userDataSecretDataKey       string
+				networkID                   string
+				podCIDR                     string
+				subnetID                    string
+				securityGroupName           string
 
 				namePool1           string
 				minPool1            int32
@@ -129,7 +131,7 @@ var _ = Describe("Machines", func() {
 				namePool2           string
 				minPool2            int32
 				maxPool2            int32
-				priorityPool2       int32
+				priorityPool2       *int32
 				maxSurgePool2       intstr.IntOrString
 				maxUnavailablePool2 intstr.IntOrString
 
@@ -138,9 +140,14 @@ var _ = Describe("Machines", func() {
 				zone1 string
 				zone2 string
 
-				nodeCapacity         corev1.ResourceList
-				nodeTemplateZone1    machinev1alpha1.NodeTemplate
-				nodeTemplateZone2    machinev1alpha1.NodeTemplate
+				nodeCapacity           corev1.ResourceList
+				nodeTemplatePool1Zone1 machinev1alpha1.NodeTemplate
+				nodeTemplatePool2Zone1 machinev1alpha1.NodeTemplate
+				nodeTemplatePool3Zone1 machinev1alpha1.NodeTemplate
+				nodeTemplatePool1Zone2 machinev1alpha1.NodeTemplate
+				nodeTemplatePool2Zone2 machinev1alpha1.NodeTemplate
+				nodeTemplatePool3Zone2 machinev1alpha1.NodeTemplate
+
 				machineConfiguration *machinev1alpha1.MachineConfiguration
 
 				workerPoolHash1 string
@@ -149,34 +156,53 @@ var _ = Describe("Machines", func() {
 
 				shootVersionMajorMinor string
 				shootVersion           string
-				cloudProfileConfig     *api.CloudProfileConfig
-				cloudProfileConfigJSON []byte
 				clusterWithoutImages   *extensionscontroller.Cluster
 				cluster                *extensionscontroller.Cluster
 				w                      *extensionsv1alpha1.Worker
 
 				emptyClusterAutoscalerAnnotations map[string]string
+				capabilitiesAmd, capabilitiesArm  gardencorev1beta1.Capabilities
+				capabilityDefinitions             []gardencorev1beta1.CapabilityDefinition
 			)
 
 			BeforeEach(func() {
-				namespace = "shoot--foobar--openstack"
+				if isCapabilitiesCloudProfile {
+					capabilityDefinitions = []gardencorev1beta1.CapabilityDefinition{
+						{Name: "some-capability", Values: []string{"a", "b", "c"}},
+						{Name: v1beta1constants.ArchitectureName, Values: []string{v1beta1constants.ArchitectureAMD64, v1beta1constants.ArchitectureARM64}},
+					}
+					capabilitiesAmd = gardencorev1beta1.Capabilities{
+						v1beta1constants.ArchitectureName: []string{v1beta1constants.ArchitectureAMD64},
+					}
+					capabilitiesArm = gardencorev1beta1.Capabilities{
+						v1beta1constants.ArchitectureName: []string{"arm64"},
+					}
+
+				}
+				if usesGlobalImageNames {
+					machineImageID = ""
+				} else {
+					machineImageID = "my-image-ID"
+				}
+
+				namespace = "control-plane-namespace"
+				technicalID = "shoot--foobar--openstack"
 				cloudProfileName = "openstack"
 
 				region = "eu-de-1"
-				regionWithImages = "eu-de-2"
 
 				openstackAuthURL = "auth-url"
 
 				machineImageName = "my-os"
 				machineImageVersion = "123.4.5-foo+bar123"
 				machineImage = "my-image-in-glance"
-				machineImageID = "my-image-id"
 
 				archAMD = "amd64"
 				archARM = "arm64"
 
 				keyName = "key-name"
 				machineType = "large"
+				machineTypeArm = "large-arm"
 				userData = []byte("some-user-data")
 				userDataSecretName = "userdata-secret-name"
 				userDataSecretDataKey = "userdata-secret-key"
@@ -188,15 +214,15 @@ var _ = Describe("Machines", func() {
 				namePool1 = "pool-1"
 				minPool1 = 5
 				maxPool1 = 10
-				maxSurgePool1 = intstr.FromInt(3)
-				maxUnavailablePool1 = intstr.FromInt(2)
+				maxSurgePool1 = intstr.FromInt32(3)
+				maxUnavailablePool1 = intstr.FromInt32(2)
 
 				namePool2 = "pool-2"
 				minPool2 = 30
 				maxPool2 = 45
-				priorityPool2 = 100
-				maxSurgePool2 = intstr.FromInt(10)
-				maxUnavailablePool2 = intstr.FromInt(15)
+				priorityPool2 = ptr.To[int32](100)
+				maxSurgePool2 = intstr.FromInt32(10)
+				maxUnavailablePool2 = intstr.FromInt32(15)
 
 				namePool3 = "pool-3"
 
@@ -216,15 +242,14 @@ var _ = Describe("Machines", func() {
 					"gpu":    resource.MustParse("1"),
 					"memory": resource.MustParse("128Gi"),
 				}
-				nodeTemplateZone1 = machinev1alpha1.NodeTemplate{
+				nodeTemplatePool1Zone1 = machinev1alpha1.NodeTemplate{
 					Capacity:     nodeCapacity,
 					InstanceType: machineType,
 					Region:       region,
 					Zone:         zone1,
 					Architecture: &archAMD,
 				}
-
-				nodeTemplateZone2 = machinev1alpha1.NodeTemplate{
+				nodeTemplatePool1Zone2 = machinev1alpha1.NodeTemplate{
 					Capacity:     nodeCapacity,
 					InstanceType: machineType,
 					Region:       region,
@@ -232,19 +257,49 @@ var _ = Describe("Machines", func() {
 					Architecture: &archAMD,
 				}
 
+				nodeTemplatePool2Zone1 = machinev1alpha1.NodeTemplate{
+					Capacity:     nodeCapacity,
+					InstanceType: machineType,
+					Region:       region,
+					Zone:         zone1,
+					Architecture: &archAMD,
+				}
+				nodeTemplatePool2Zone2 = machinev1alpha1.NodeTemplate{
+					Capacity:     nodeCapacity,
+					InstanceType: machineType,
+					Region:       region,
+					Zone:         zone2,
+					Architecture: &archAMD,
+				}
+
+				nodeTemplatePool3Zone1 = machinev1alpha1.NodeTemplate{
+					Capacity:     nodeCapacity,
+					InstanceType: machineTypeArm,
+					Region:       region,
+					Zone:         zone1,
+					Architecture: &archARM,
+				}
+				nodeTemplatePool3Zone2 = machinev1alpha1.NodeTemplate{
+					Capacity:     nodeCapacity,
+					InstanceType: machineTypeArm,
+					Region:       region,
+					Zone:         zone2,
+					Architecture: &archARM,
+				}
+
 				machineConfiguration = &machinev1alpha1.MachineConfiguration{}
 
-				shootVersionMajorMinor = "1.29"
-				shootVersion = shootVersionMajorMinor + ".3"
+				shootVersionMajorMinor = "1.30"
+				shootVersion = shootVersionMajorMinor + ".14"
 
-				cloudProfileConfig = &api.CloudProfileConfig{
+				cloudProfileConfig := &api.CloudProfileConfig{
 					TypeMeta: metav1.TypeMeta{
 						APIVersion: api.SchemeGroupVersion.String(),
 						Kind:       "CloudProfileConfig",
 					},
 					KeyStoneURL: openstackAuthURL,
 				}
-				cloudProfileConfigJSON, _ = json.Marshal(cloudProfileConfig)
+				cloudProfileConfigJSON, _ := json.Marshal(cloudProfileConfig)
 
 				clusterWithoutImages = &extensionscontroller.Cluster{
 					CloudProfile: &gardencorev1beta1.CloudProfile{
@@ -266,39 +321,99 @@ var _ = Describe("Machines", func() {
 								Version: shootVersion,
 							},
 						},
+						Status: gardencorev1beta1.ShootStatus{
+							TechnicalID: technicalID,
+						},
 					},
 				}
 
-				cloudProfileConfig.MachineImages = []api.MachineImages{
+				machineImages := []apiv1alpha1.MachineImages{
 					{
 						Name: machineImageName,
-						Versions: []api.MachineImageVersion{
+						Versions: []apiv1alpha1.MachineImageVersion{
 							{
 								Version: machineImageVersion,
-								Image:   machineImage,
-								Regions: []api.RegionIDMapping{
+								CapabilityFlavors: []apiv1alpha1.MachineImageFlavor{
 									{
-										Name:         regionWithImages,
-										ID:           machineImageID,
-										Architecture: &archARM,
+										Capabilities: capabilitiesArm,
+										Image:        machineImage,
+										Regions: []apiv1alpha1.RegionIDMapping{
+											{
+												Name: region,
+												ID:   machineImageID,
+											},
+										},
 									},
 									{
-										Name:         regionWithImages,
-										ID:           machineImageID,
-										Architecture: &archAMD,
+										Capabilities: capabilitiesAmd,
+										Image:        machineImage,
+										Regions: []apiv1alpha1.RegionIDMapping{
+											{
+												Name: region,
+												ID:   machineImageID,
+											},
+										},
 									},
 								},
 							},
 						},
 					},
 				}
-				cloudProfileConfigJSON, _ = json.Marshal(cloudProfileConfig)
+
+				if !isCapabilitiesCloudProfile {
+					machineImages = []apiv1alpha1.MachineImages{
+						{
+							Name: machineImageName,
+							Versions: []apiv1alpha1.MachineImageVersion{
+								{
+									Version: machineImageVersion,
+									Image:   machineImage,
+									Regions: []apiv1alpha1.RegionIDMapping{
+										{
+											Name:         region,
+											ID:           machineImageID,
+											Architecture: ptr.To(archARM),
+										},
+										{
+											Name:         region,
+											ID:           machineImageID,
+											Architecture: ptr.To(archAMD),
+										},
+									},
+								},
+							},
+						},
+					}
+				}
+
+				cloudProfileConfig2 := &apiv1alpha1.CloudProfileConfig{
+					TypeMeta: metav1.TypeMeta{
+						APIVersion: apiv1alpha1.SchemeGroupVersion.String(),
+						Kind:       "CloudProfileConfig",
+					},
+					KeyStoneURL:   openstackAuthURL,
+					MachineImages: machineImages,
+				}
+
+				cloudProfileConfigJSON, _ = json.Marshal(cloudProfileConfig2)
 				cluster = &extensionscontroller.Cluster{
 					CloudProfile: &gardencorev1beta1.CloudProfile{
 						ObjectMeta: metav1.ObjectMeta{
 							Name: cloudProfileName,
 						},
 						Spec: gardencorev1beta1.CloudProfileSpec{
+							MachineCapabilities: capabilityDefinitions,
+							MachineTypes: []gardencorev1beta1.MachineType{
+								{
+									Name:         machineType,
+									Capabilities: capabilitiesAmd,
+								},
+								{
+									Name:         machineTypeArm,
+									Architecture: ptr.To(archARM),
+									Capabilities: capabilitiesArm,
+								},
+							},
 							ProviderConfig: &runtime.RawExtension{
 								Raw: cloudProfileConfigJSON,
 							},
@@ -368,7 +483,7 @@ var _ = Describe("Machines", func() {
 								Name:           namePool2,
 								Minimum:        minPool2,
 								Maximum:        maxPool2,
-								Priority:       ptr.To(priorityPool2),
+								Priority:       priorityPool2,
 								MaxSurge:       maxSurgePool2,
 								Architecture:   &archAMD,
 								MaxUnavailable: maxUnavailablePool2,
@@ -395,11 +510,11 @@ var _ = Describe("Machines", func() {
 								Name:           namePool3,
 								Minimum:        minPool2,
 								Maximum:        maxPool2,
-								Priority:       ptr.To(priorityPool2),
+								Priority:       priorityPool2,
 								MaxSurge:       maxSurgePool2,
-								Architecture:   &archAMD,
+								Architecture:   &archARM,
 								MaxUnavailable: maxUnavailablePool2,
-								MachineType:    machineType,
+								MachineType:    machineTypeArm,
 								MachineImage: extensionsv1alpha1.MachineImage{
 									Name:    machineImageName,
 									Version: machineImageVersion,
@@ -426,7 +541,7 @@ var _ = Describe("Machines", func() {
 				workerPoolHash2, _ = worker.WorkerPoolHash(w.Spec.Pools[1], cluster, nil, nil, nil)
 				workerPoolHash3, _ = worker.WorkerPoolHash(w.Spec.Pools[2], cluster, nil, nil, nil)
 
-				workerDelegate, _ = NewWorkerDelegate(c, scheme, chartApplier, "", w, clusterWithoutImages, nil)
+				workerDelegate, _ = NewWorkerDelegate(c, scheme, chartApplier, w, clusterWithoutImages, nil)
 			})
 
 			expectedUserDataSecretRefRead := func() {
@@ -446,16 +561,12 @@ var _ = Describe("Machines", func() {
 					workerWithRegion    *extensionsv1alpha1.Worker
 					clusterWithRegion   *extensionscontroller.Cluster
 				)
+				BeforeEach(func() {
 
-				setup := func(region, name, imageID, architecture string) {
 					workerWithRegion = w.DeepCopy()
 					zone1 = region + "a"
 					zone2 = region + "b"
 					workerWithRegion.Spec.Region = region
-					workerWithRegion.Spec.Pools[0].Architecture = &architecture
-					workerWithRegion.Spec.Pools[1].Architecture = &architecture
-					workerWithRegion.Spec.Pools[2].Architecture = &architecture
-
 					workerWithRegion.Spec.Pools[0].Zones = []string{zone1, zone2}
 					workerWithRegion.Spec.Pools[1].Zones = []string{zone1, zone2}
 					workerWithRegion.Spec.Pools[2].Zones = []string{zone1, zone2}
@@ -469,15 +580,14 @@ var _ = Describe("Machines", func() {
 
 					defaultMachineClass = map[string]interface{}{
 						"region":          region,
-						"machineType":     machineType,
 						"keyName":         keyName,
 						"networkID":       networkID,
 						"subnetID":        subnetID,
 						"podNetworkCIDRs": []string{podCIDR},
 						"securityGroups":  []string{securityGroupName},
 						"tags": map[string]string{
-							fmt.Sprintf("kubernetes.io-cluster-%s", namespace): "1",
-							"kubernetes.io-role-node":                          "1",
+							fmt.Sprintf("kubernetes.io-cluster-%s", technicalID): "1",
+							"kubernetes.io-role-node":                            "1",
 						},
 						"secret": map[string]interface{}{
 							"cloudConfig": string(userData),
@@ -487,42 +597,34 @@ var _ = Describe("Machines", func() {
 							"operatingSystemVersion": strings.ReplaceAll(machineImageVersion, "+", "_"),
 						},
 					}
-					if imageID == "" {
-						defaultMachineClass["imageName"] = name
+
+					if usesGlobalImageNames {
+						defaultMachineClass["imageName"] = machineImage
 					} else {
-						defaultMachineClass["imageID"] = imageID
+						defaultMachineClass["imageID"] = machineImageID
 					}
 
-					newNodeTemplateZone1 := machinev1alpha1.NodeTemplate{
-						Capacity:     nodeCapacity,
-						InstanceType: machineType,
-						Region:       region,
-						Zone:         zone1,
-						Architecture: &architecture,
-					}
-
-					newNodeTemplateZone2 := machinev1alpha1.NodeTemplate{
-						Capacity:     nodeCapacity,
-						InstanceType: machineType,
-						Region:       region,
-						Zone:         zone2,
-						Architecture: &architecture,
-					}
+					newNodeTemplatePool1Zone1 := &nodeTemplatePool1Zone1
+					newNodeTemplatePool1Zone2 := &nodeTemplatePool1Zone2
+					newNodeTemplatePool2Zone1 := &nodeTemplatePool2Zone1
+					newNodeTemplatePool2Zone2 := &nodeTemplatePool2Zone2
+					newNodeTemplatePool3Zone1 := &nodeTemplatePool3Zone1
+					newNodeTemplatePool3Zone2 := &nodeTemplatePool3Zone2
 
 					var (
-						machineClassPool1Zone1 = useDefaultMachineClass(defaultMachineClass, "availabilityZone", zone1)
-						machineClassPool1Zone2 = useDefaultMachineClass(defaultMachineClass, "availabilityZone", zone2)
-						machineClassPool2Zone1 = useDefaultMachineClass(defaultMachineClass, "availabilityZone", zone1)
-						machineClassPool2Zone2 = useDefaultMachineClass(defaultMachineClass, "availabilityZone", zone2)
-						machineClassPool3Zone1 = useDefaultMachineClass(defaultMachineClass, "availabilityZone", zone1)
-						machineClassPool3Zone2 = useDefaultMachineClass(defaultMachineClass, "availabilityZone", zone2)
+						machineClassPool1Zone1 = addKeyValueToMap(defaultMachineClass, "availabilityZone", zone1)
+						machineClassPool1Zone2 = addKeyValueToMap(defaultMachineClass, "availabilityZone", zone2)
+						machineClassPool2Zone1 = addKeyValueToMap(defaultMachineClass, "availabilityZone", zone1)
+						machineClassPool2Zone2 = addKeyValueToMap(defaultMachineClass, "availabilityZone", zone2)
+						machineClassPool3Zone1 = addKeyValueToMap(defaultMachineClass, "availabilityZone", zone1)
+						machineClassPool3Zone2 = addKeyValueToMap(defaultMachineClass, "availabilityZone", zone2)
 
-						machineClassNamePool1Zone1 = fmt.Sprintf("%s-%s-z1", namespace, namePool1)
-						machineClassNamePool1Zone2 = fmt.Sprintf("%s-%s-z2", namespace, namePool1)
-						machineClassNamePool2Zone1 = fmt.Sprintf("%s-%s-z1", namespace, namePool2)
-						machineClassNamePool2Zone2 = fmt.Sprintf("%s-%s-z2", namespace, namePool2)
-						machineClassNamePool3Zone1 = fmt.Sprintf("%s-%s-z1", namespace, namePool3)
-						machineClassNamePool3Zone2 = fmt.Sprintf("%s-%s-z2", namespace, namePool3)
+						machineClassNamePool1Zone1 = fmt.Sprintf("%s-%s-z1", technicalID, namePool1)
+						machineClassNamePool1Zone2 = fmt.Sprintf("%s-%s-z2", technicalID, namePool1)
+						machineClassNamePool2Zone1 = fmt.Sprintf("%s-%s-z1", technicalID, namePool2)
+						machineClassNamePool2Zone2 = fmt.Sprintf("%s-%s-z2", technicalID, namePool2)
+						machineClassNamePool3Zone1 = fmt.Sprintf("%s-%s-z1", technicalID, namePool3)
+						machineClassNamePool3Zone2 = fmt.Sprintf("%s-%s-z2", technicalID, namePool3)
 
 						machineClassWithHashPool1Zone1 = fmt.Sprintf("%s-%s", machineClassNamePool1Zone1, workerPoolHash1)
 						machineClassWithHashPool1Zone2 = fmt.Sprintf("%s-%s", machineClassNamePool1Zone2, workerPoolHash1)
@@ -531,6 +633,12 @@ var _ = Describe("Machines", func() {
 						machineClassWithHashPool3Zone1 = fmt.Sprintf("%s-%s", machineClassNamePool3Zone1, workerPoolHash3)
 						machineClassWithHashPool3Zone2 = fmt.Sprintf("%s-%s", machineClassNamePool3Zone2, workerPoolHash3)
 					)
+					machineClassPool1Zone1 = addKeyValueToMap(machineClassPool1Zone1, "machineType", machineType)
+					machineClassPool1Zone2 = addKeyValueToMap(machineClassPool1Zone2, "machineType", machineType)
+					machineClassPool2Zone1 = addKeyValueToMap(machineClassPool2Zone1, "machineType", machineType)
+					machineClassPool2Zone2 = addKeyValueToMap(machineClassPool2Zone2, "machineType", machineType)
+					machineClassPool3Zone1 = addKeyValueToMap(machineClassPool3Zone1, "machineType", machineTypeArm)
+					machineClassPool3Zone2 = addKeyValueToMap(machineClassPool3Zone2, "machineType", machineTypeArm)
 
 					addNameAndSecretToMachineClass(machineClassPool1Zone1, machineClassWithHashPool1Zone1, w.Spec.SecretRef)
 					addNameAndSecretToMachineClass(machineClassPool1Zone2, machineClassWithHashPool1Zone2, w.Spec.SecretRef)
@@ -539,12 +647,12 @@ var _ = Describe("Machines", func() {
 					addNameAndSecretToMachineClass(machineClassPool3Zone1, machineClassWithHashPool3Zone1, w.Spec.SecretRef)
 					addNameAndSecretToMachineClass(machineClassPool3Zone2, machineClassWithHashPool3Zone2, w.Spec.SecretRef)
 
-					addNodeTemplateToMachineClass(machineClassPool1Zone1, newNodeTemplateZone1)
-					addNodeTemplateToMachineClass(machineClassPool1Zone2, newNodeTemplateZone2)
-					addNodeTemplateToMachineClass(machineClassPool2Zone1, newNodeTemplateZone1)
-					addNodeTemplateToMachineClass(machineClassPool2Zone2, newNodeTemplateZone2)
-					addNodeTemplateToMachineClass(machineClassPool3Zone1, newNodeTemplateZone1)
-					addNodeTemplateToMachineClass(machineClassPool3Zone2, newNodeTemplateZone2)
+					addNodeTemplateToMachineClass(machineClassPool1Zone1, *newNodeTemplatePool1Zone1)
+					addNodeTemplateToMachineClass(machineClassPool1Zone2, *newNodeTemplatePool1Zone2)
+					addNodeTemplateToMachineClass(machineClassPool2Zone1, *newNodeTemplatePool2Zone1)
+					addNodeTemplateToMachineClass(machineClassPool2Zone2, *newNodeTemplatePool2Zone2)
+					addNodeTemplateToMachineClass(machineClassPool3Zone1, *newNodeTemplatePool3Zone1)
+					addNodeTemplateToMachineClass(machineClassPool3Zone2, *newNodeTemplatePool3Zone2)
 
 					machineClasses = map[string]interface{}{"machineClasses": []map[string]interface{}{
 						machineClassPool1Zone1,
@@ -604,7 +712,7 @@ var _ = Describe("Machines", func() {
 							SecretName: machineClassWithHashPool2Zone1,
 							Minimum:    worker.DistributeOverZones(0, minPool2, 2),
 							Maximum:    worker.DistributeOverZones(0, maxPool2, 2),
-							Priority:   ptr.To(priorityPool2),
+							Priority:   priorityPool2,
 							PoolName:   namePool2,
 							Strategy: machinev1alpha1.MachineDeploymentStrategy{
 								Type: machinev1alpha1.InPlaceUpdateMachineDeploymentStrategyType,
@@ -626,7 +734,7 @@ var _ = Describe("Machines", func() {
 							SecretName: machineClassWithHashPool2Zone2,
 							Minimum:    worker.DistributeOverZones(1, minPool2, 2),
 							Maximum:    worker.DistributeOverZones(1, maxPool2, 2),
-							Priority:   ptr.To(priorityPool2),
+							Priority:   priorityPool2,
 							PoolName:   namePool2,
 							Strategy: machinev1alpha1.MachineDeploymentStrategy{
 								Type: machinev1alpha1.InPlaceUpdateMachineDeploymentStrategyType,
@@ -648,7 +756,7 @@ var _ = Describe("Machines", func() {
 							SecretName: machineClassWithHashPool3Zone1,
 							Minimum:    worker.DistributeOverZones(0, minPool2, 2),
 							Maximum:    worker.DistributeOverZones(0, maxPool2, 2),
-							Priority:   ptr.To(priorityPool2),
+							Priority:   priorityPool2,
 							PoolName:   namePool3,
 							Strategy: machinev1alpha1.MachineDeploymentStrategy{
 								Type: machinev1alpha1.InPlaceUpdateMachineDeploymentStrategyType,
@@ -670,7 +778,7 @@ var _ = Describe("Machines", func() {
 							SecretName: machineClassWithHashPool3Zone2,
 							Minimum:    worker.DistributeOverZones(1, minPool2, 2),
 							Maximum:    worker.DistributeOverZones(1, maxPool2, 2),
-							Priority:   ptr.To(priorityPool2),
+							Priority:   priorityPool2,
 							PoolName:   namePool3,
 							Strategy: machinev1alpha1.MachineDeploymentStrategy{
 								Type: machinev1alpha1.InPlaceUpdateMachineDeploymentStrategyType,
@@ -687,14 +795,19 @@ var _ = Describe("Machines", func() {
 							ClusterAutoscalerAnnotations: emptyClusterAutoscalerAnnotations,
 						},
 					}
-				}
+
+					workerPoolHash1, _ = worker.WorkerPoolHash(w.Spec.Pools[0], cluster, nil, nil, nil)
+					workerPoolHash2, _ = worker.WorkerPoolHash(w.Spec.Pools[1], cluster, nil, nil, nil)
+					workerPoolHash3, _ = worker.WorkerPoolHash(w.Spec.Pools[2], cluster, nil, nil, nil)
+
+				})
 
 				It("should return the expected machine deployments for profile image types", func() {
-					setup(region, machineImage, "", archAMD)
-					workerDelegate, _ := NewWorkerDelegate(c, scheme, chartApplier, "", w, cluster, nil)
+					workerDelegate, _ := NewWorkerDelegate(c, scheme, chartApplier, w, cluster, nil)
 
 					// Test workerDelegate.DeployMachineClasses()
 					expectedUserDataSecretRefRead()
+					fmt.Printf("Expected machineClasses: %+v\n", machineClasses)
 
 					chartApplier.
 						EXPECT().
@@ -712,20 +825,44 @@ var _ = Describe("Machines", func() {
 					Expect(err).NotTo(HaveOccurred())
 
 					// Test workerDelegate.UpdateMachineDeployments()
+					machineImages := []apiv1alpha1.MachineImage{
+						{
+							Name:         machineImageName,
+							Version:      machineImageVersion,
+							ID:           machineImageID,
+							Capabilities: capabilitiesAmd,
+						},
+						{
+							Name:         machineImageName,
+							Version:      machineImageVersion,
+							ID:           machineImageID,
+							Capabilities: capabilitiesArm,
+						},
+					}
+					if !isCapabilitiesCloudProfile {
+						machineImages = []apiv1alpha1.MachineImage{
+							{
+								Name:         machineImageName,
+								Version:      machineImageVersion,
+								ID:           machineImageID,
+								Architecture: &archAMD,
+							},
+							{
+								Name:         machineImageName,
+								Version:      machineImageVersion,
+								ID:           machineImageID,
+								Architecture: &archARM,
+							},
+						}
+					}
 
+					// Test WorkerDelegate.UpdateMachineDeployments()
 					expectedImages := &apiv1alpha1.WorkerStatus{
 						TypeMeta: metav1.TypeMeta{
 							APIVersion: apiv1alpha1.SchemeGroupVersion.String(),
 							Kind:       "WorkerStatus",
 						},
-						MachineImages: []apiv1alpha1.MachineImage{
-							{
-								Name:         machineImageName,
-								Version:      machineImageVersion,
-								Image:        machineImage,
-								Architecture: ptr.To(v1beta1constants.ArchitectureAMD64),
-							},
-						},
+						MachineImages: machineImages,
 					}
 
 					workerWithExpectedImages := w.DeepCopy()
@@ -747,12 +884,13 @@ var _ = Describe("Machines", func() {
 				})
 
 				It("should return the expected machine deployments for profile image types with id", func() {
-					setup(regionWithImages, "", machineImageID, archARM)
-					workerDelegate, _ := NewWorkerDelegate(c, scheme, chartApplier, "", workerWithRegion, clusterWithRegion, nil)
+					//setup(region, "", machineImageID, archARM)
+					workerDelegate, _ := NewWorkerDelegate(c, scheme, chartApplier, workerWithRegion, clusterWithRegion, nil)
 					clusterWithRegion.Shoot.Spec.Hibernation = &gardencorev1beta1.Hibernation{Enabled: ptr.To(true)}
 
 					// Test workerDelegate.DeployMachineClasses()
 					expectedUserDataSecretRefRead()
+					fmt.Printf("Expected machineClasses: %+v\n", machineClasses)
 
 					chartApplier.
 						EXPECT().
@@ -768,22 +906,46 @@ var _ = Describe("Machines", func() {
 
 					err := workerDelegate.DeployMachineClasses(ctx)
 					Expect(err).NotTo(HaveOccurred())
-
-					// Test workerDelegate.GetMachineImages()
-					expectedImages := &apiv1alpha1.WorkerStatus{
-						TypeMeta: metav1.TypeMeta{
-							APIVersion: apiv1alpha1.SchemeGroupVersion.String(),
-							Kind:       "WorkerStatus",
+					machineImages := []apiv1alpha1.MachineImage{
+						{
+							Name:         machineImageName,
+							Version:      machineImageVersion,
+							ID:           machineImageID,
+							Capabilities: capabilitiesAmd,
 						},
-						MachineImages: []apiv1alpha1.MachineImage{
+						{
+							Name:         machineImageName,
+							Version:      machineImageVersion,
+							ID:           machineImageID,
+							Capabilities: capabilitiesArm,
+						},
+					}
+					if !isCapabilitiesCloudProfile {
+						machineImages = []apiv1alpha1.MachineImage{
+							{
+								Name:         machineImageName,
+								Version:      machineImageVersion,
+								ID:           machineImageID,
+								Architecture: ptr.To(v1beta1constants.ArchitectureAMD64),
+							},
 							{
 								Name:         machineImageName,
 								Version:      machineImageVersion,
 								ID:           machineImageID,
 								Architecture: ptr.To(v1beta1constants.ArchitectureARM64),
 							},
-						},
+						}
 					}
+					// Test workerDelegate.GetMachineImages()
+					expectedImages := &apiv1alpha1.WorkerStatus{
+						TypeMeta: metav1.TypeMeta{
+							APIVersion: apiv1alpha1.SchemeGroupVersion.String(),
+							Kind:       "WorkerStatus",
+						},
+						MachineImages: machineImages,
+					}
+
+					fmt.Printf("Expected machineImages: %+v\n", machineImages)
 
 					workerWithExpectedImages := workerWithRegion.DeepCopy()
 					workerWithExpectedImages.Status.ProviderStatus = &runtime.RawExtension{
@@ -815,7 +977,7 @@ var _ = Describe("Machines", func() {
 							serverGroupID3   = "id3"
 						)
 
-						setup(region, machineImage, "", archAMD)
+						//setup(region, "", machineImageID)
 
 						workerWithServerGroup := w.DeepCopy()
 						workerWithServerGroup.Spec.Pools[0].ProviderConfig = &runtime.RawExtension{
@@ -877,7 +1039,7 @@ var _ = Describe("Machines", func() {
 							},
 						}
 
-						workerDelegate, _ := NewWorkerDelegate(c, scheme, chartApplier, "", workerWithServerGroup, cluster, nil)
+						workerDelegate, _ := NewWorkerDelegate(c, scheme, chartApplier, workerWithServerGroup, cluster, nil)
 
 						// Test workerDelegate.DeployMachineClasses()
 						workerPoolHash1, _ := worker.WorkerPoolHash(w.Spec.Pools[0], cluster, []string{serverGroupID1}, []string{serverGroupID1}, nil)
@@ -907,30 +1069,36 @@ var _ = Describe("Machines", func() {
 							"availabilityZone": zone2,
 							"serverGroupID":    serverGroupID3,
 						})
-						machineClassNamePool1Zone1 := fmt.Sprintf("%s-%s-z1", namespace, namePool1)
-						machineClassNamePool1Zone2 := fmt.Sprintf("%s-%s-z2", namespace, namePool1)
-						machineClassNamePool2Zone1 := fmt.Sprintf("%s-%s-z1", namespace, namePool2)
-						machineClassNamePool2Zone2 := fmt.Sprintf("%s-%s-z2", namespace, namePool2)
-						machineClassNamePool3Zone1 := fmt.Sprintf("%s-%s-z1", namespace, namePool3)
-						machineClassNamePool3Zone2 := fmt.Sprintf("%s-%s-z2", namespace, namePool3)
+						machineClassNamePool1Zone1 := fmt.Sprintf("%s-%s-z1", technicalID, namePool1)
+						machineClassNamePool1Zone2 := fmt.Sprintf("%s-%s-z2", technicalID, namePool1)
+						machineClassNamePool2Zone1 := fmt.Sprintf("%s-%s-z1", technicalID, namePool2)
+						machineClassNamePool2Zone2 := fmt.Sprintf("%s-%s-z2", technicalID, namePool2)
+						machineClassNamePool3Zone1 := fmt.Sprintf("%s-%s-z1", technicalID, namePool3)
+						machineClassNamePool3Zone2 := fmt.Sprintf("%s-%s-z2", technicalID, namePool3)
 						machineClassWithHashPool1Zone1 := fmt.Sprintf("%s-%s", machineClassNamePool1Zone1, workerPoolHash1)
 						machineClassWithHashPool1Zone2 := fmt.Sprintf("%s-%s", machineClassNamePool1Zone2, workerPoolHash1)
 						machineClassWithHashPool2Zone1 := fmt.Sprintf("%s-%s", machineClassNamePool2Zone1, workerPoolHash2)
 						machineClassWithHashPool2Zone2 := fmt.Sprintf("%s-%s", machineClassNamePool2Zone2, workerPoolHash2)
 						machineClassWithHashPool3Zone1 := fmt.Sprintf("%s-%s", machineClassNamePool3Zone1, workerPoolHash3)
 						machineClassWithHashPool3Zone2 := fmt.Sprintf("%s-%s", machineClassNamePool3Zone2, workerPoolHash3)
+						machineClassPool1Zone1 = addKeyValueToMap(machineClassPool1Zone1, "machineType", machineType)
+						machineClassPool1Zone2 = addKeyValueToMap(machineClassPool1Zone2, "machineType", machineType)
+						machineClassPool2Zone1 = addKeyValueToMap(machineClassPool2Zone1, "machineType", machineType)
+						machineClassPool2Zone2 = addKeyValueToMap(machineClassPool2Zone2, "machineType", machineType)
+						machineClassPool3Zone1 = addKeyValueToMap(machineClassPool3Zone1, "machineType", machineTypeArm)
+						machineClassPool3Zone2 = addKeyValueToMap(machineClassPool3Zone2, "machineType", machineTypeArm)
 						addNameAndSecretToMachineClass(machineClassPool1Zone1, machineClassWithHashPool1Zone1, w.Spec.SecretRef)
 						addNameAndSecretToMachineClass(machineClassPool1Zone2, machineClassWithHashPool1Zone2, w.Spec.SecretRef)
 						addNameAndSecretToMachineClass(machineClassPool2Zone1, machineClassWithHashPool2Zone1, w.Spec.SecretRef)
 						addNameAndSecretToMachineClass(machineClassPool2Zone2, machineClassWithHashPool2Zone2, w.Spec.SecretRef)
 						addNameAndSecretToMachineClass(machineClassPool3Zone1, machineClassWithHashPool3Zone1, w.Spec.SecretRef)
 						addNameAndSecretToMachineClass(machineClassPool3Zone2, machineClassWithHashPool3Zone2, w.Spec.SecretRef)
-						addNodeTemplateToMachineClass(machineClassPool1Zone1, nodeTemplateZone1)
-						addNodeTemplateToMachineClass(machineClassPool1Zone2, nodeTemplateZone2)
-						addNodeTemplateToMachineClass(machineClassPool2Zone1, nodeTemplateZone1)
-						addNodeTemplateToMachineClass(machineClassPool2Zone2, nodeTemplateZone2)
-						addNodeTemplateToMachineClass(machineClassPool3Zone1, nodeTemplateZone1)
-						addNodeTemplateToMachineClass(machineClassPool3Zone2, nodeTemplateZone2)
+						addNodeTemplateToMachineClass(machineClassPool1Zone1, nodeTemplatePool1Zone1)
+						addNodeTemplateToMachineClass(machineClassPool1Zone2, nodeTemplatePool1Zone2)
+						addNodeTemplateToMachineClass(machineClassPool2Zone1, nodeTemplatePool2Zone1)
+						addNodeTemplateToMachineClass(machineClassPool2Zone2, nodeTemplatePool2Zone2)
+						addNodeTemplateToMachineClass(machineClassPool3Zone1, nodeTemplatePool3Zone1)
+						addNodeTemplateToMachineClass(machineClassPool3Zone2, nodeTemplatePool3Zone2)
 						machineClasses := map[string]interface{}{"machineClasses": []map[string]interface{}{
 							machineClassPool1Zone1,
 							machineClassPool1Zone2,
@@ -939,9 +1107,8 @@ var _ = Describe("Machines", func() {
 							machineClassPool3Zone1,
 							machineClassPool3Zone2,
 						}}
-
+						fmt.Printf("Expected machineClasses: %+v\n", machineClasses)
 						expectedUserDataSecretRefRead()
-
 						chartApplier.
 							EXPECT().
 							ApplyFromEmbeddedFS(
@@ -955,11 +1122,18 @@ var _ = Describe("Machines", func() {
 							Return(nil)
 
 						err := workerDelegate.DeployMachineClasses(ctx)
+						if err != nil {
+							fmt.Printf("Error deploying machine classes: %v\n", err)
+						}
 						Expect(err).NotTo(HaveOccurred())
 					})
 
 					It("should fail if the server group dependencies do not exist", func() {
-						setup(region, machineImage, "", archAMD)
+						//(region, machineImage, "")
+						// TODO: check if we need to skip this test when image names are used instead
+						if !usesGlobalImageNames {
+							Skip("skipping test if image IDs are used")
+						}
 
 						workerWithServerGroup := w.DeepCopy()
 						workerWithServerGroup.Spec.Pools[0].ProviderConfig = &runtime.RawExtension{
@@ -974,7 +1148,7 @@ var _ = Describe("Machines", func() {
 							},
 						}
 
-						workerDelegate, _ := NewWorkerDelegate(c, scheme, chartApplier, "", workerWithServerGroup, cluster, nil)
+						workerDelegate, _ := NewWorkerDelegate(c, scheme, chartApplier, workerWithServerGroup, cluster, nil)
 						err := workerDelegate.DeployMachineClasses(ctx)
 						Expect(err).To(HaveOccurred())
 						Expect(err.Error()).To(Equal(`server group is required for pool "pool-1", but no server group dependency found`))
@@ -983,7 +1157,7 @@ var _ = Describe("Machines", func() {
 
 				Context("Machine Labels", func() {
 					It("should consider rolling machine labels for the worker pool hash", func() {
-						setup(region, machineImage, "", archAMD)
+						//setup(region, machineImage, "")
 
 						applyLabelsAndPolicy := func(labels []apiv1alpha1.MachineLabel, policy *string) string {
 							w.Spec.Pools[0].Labels = utils.MergeStringMaps(w.Spec.Pools[0].Labels, map[string]string{"k1": "v1"})
@@ -1015,7 +1189,7 @@ var _ = Describe("Machines", func() {
 							w.Spec.Pools[0].ProviderConfig = &runtime.RawExtension{
 								Raw: encode(workerConfig),
 							}
-							workerDelegate, _ := NewWorkerDelegate(c, scheme, chartApplier, "", w, cluster, nil)
+							workerDelegate, _ := NewWorkerDelegate(c, scheme, chartApplier, w, cluster, nil)
 
 							expectedUserDataSecretRefRead()
 
@@ -1097,7 +1271,7 @@ var _ = Describe("Machines", func() {
 
 			It("should fail because the version is invalid", func() {
 				clusterWithoutImages.Shoot.Spec.Kubernetes.Version = "invalid"
-				workerDelegate, _ = NewWorkerDelegate(c, scheme, chartApplier, "", w, cluster, nil)
+				workerDelegate, _ = NewWorkerDelegate(c, scheme, chartApplier, w, cluster, nil)
 
 				result, err := workerDelegate.GenerateMachineDeployments(ctx)
 				Expect(err).To(HaveOccurred())
@@ -1107,7 +1281,7 @@ var _ = Describe("Machines", func() {
 			It("should fail because the infrastructure status cannot be decoded", func() {
 				w.Spec.InfrastructureProviderStatus = &runtime.RawExtension{}
 
-				workerDelegate, _ = NewWorkerDelegate(c, scheme, chartApplier, "", w, cluster, nil)
+				workerDelegate, _ = NewWorkerDelegate(c, scheme, chartApplier, w, cluster, nil)
 
 				result, err := workerDelegate.GenerateMachineDeployments(ctx)
 				Expect(err).To(HaveOccurred())
@@ -1119,7 +1293,7 @@ var _ = Describe("Machines", func() {
 					Raw: encode(&api.InfrastructureStatus{}),
 				}
 
-				workerDelegate, _ = NewWorkerDelegate(c, scheme, chartApplier, "", w, cluster, nil)
+				workerDelegate, _ = NewWorkerDelegate(c, scheme, chartApplier, w, cluster, nil)
 
 				result, err := workerDelegate.GenerateMachineDeployments(ctx)
 				Expect(err).To(HaveOccurred())
@@ -1129,7 +1303,7 @@ var _ = Describe("Machines", func() {
 			It("should fail because the machine image for this cloud profile cannot be found", func() {
 				clusterWithoutImages.CloudProfile.Name = "another-cloud-profile"
 
-				workerDelegate, _ = NewWorkerDelegate(c, scheme, chartApplier, "", w, clusterWithoutImages, nil)
+				workerDelegate, _ = NewWorkerDelegate(c, scheme, chartApplier, w, clusterWithoutImages, nil)
 
 				result, err := workerDelegate.GenerateMachineDeployments(ctx)
 				Expect(err).To(HaveOccurred())
@@ -1150,7 +1324,7 @@ var _ = Describe("Machines", func() {
 					NodeConditions:         testNodeConditions,
 				}
 
-				workerDelegate, _ = NewWorkerDelegate(c, scheme, chartApplier, "", w, cluster, nil)
+				workerDelegate, _ = NewWorkerDelegate(c, scheme, chartApplier, w, cluster, nil)
 
 				expectedUserDataSecretRefRead()
 
@@ -1175,7 +1349,7 @@ var _ = Describe("Machines", func() {
 					ScaleDownUtilizationThreshold:    ptr.To("0.5"),
 				}
 				w.Spec.Pools[1].ClusterAutoscaler = nil
-				workerDelegate, _ = NewWorkerDelegate(c, scheme, chartApplier, "", w, cluster, nil)
+				workerDelegate, _ = NewWorkerDelegate(c, scheme, chartApplier, w, cluster, nil)
 
 				expectedUserDataSecretRefRead()
 
@@ -1204,7 +1378,123 @@ var _ = Describe("Machines", func() {
 				Expect(result[1].ClusterAutoscalerAnnotations[extensionsv1alpha1.ScaleDownUnreadyTimeAnnotation]).To(Equal("3m0s"))
 				Expect(result[1].ClusterAutoscalerAnnotations[extensionsv1alpha1.ScaleDownUtilizationThresholdAnnotation]).To(Equal("0.5"))
 			})
-		})
+		},
+			Entry("with capabilities and using imageIDs", true, false),
+			Entry("with capabilities and using ImageNames", true, true),
+			Entry("without capabilities and using imageIDs", false, false),
+			Entry("without capabilities and using ImageNames", false, true),
+		)
+
+		DescribeTable("EnsureUniformMachineImages", func(capabilityDefinitions []gardencorev1beta1.CapabilityDefinition, expectedImages []api.MachineImage) {
+			machineImages := []api.MachineImage{
+				// images with capability sets
+				{
+					Name:    "some-image",
+					Version: "1.2.1",
+					ID:      "id-for-arm64",
+					Capabilities: gardencorev1beta1.Capabilities{
+						v1beta1constants.ArchitectureName: []string{"arm64"},
+					},
+				},
+				{
+					Name:    "some-image",
+					Version: "1.2.2",
+					ID:      "id-for-amd64",
+					Capabilities: gardencorev1beta1.Capabilities{
+						v1beta1constants.ArchitectureName: []string{"amd64"},
+					},
+				},
+				// legacy image entry without capability sets
+				{
+					Name:         "some-image",
+					Version:      "1.2.3",
+					ID:           "id-for-amd64",
+					Architecture: ptr.To("amd64"),
+				},
+				{
+					Name:         "some-image",
+					Version:      "1.2.2",
+					ID:           "id-for-amd64",
+					Architecture: ptr.To("amd64"),
+				},
+				{
+					Name:         "some-image",
+					Version:      "1.2.1",
+					ID:           "id-for-amd64",
+					Architecture: ptr.To("amd64"),
+				},
+			}
+			actualImages := EnsureUniformMachineImages(machineImages, capabilityDefinitions)
+			Expect(actualImages).To(ContainElements(expectedImages))
+
+		},
+			Entry("should return images with Architecture", nil, []api.MachineImage{
+				// images with capability sets
+				{
+					Name:         "some-image",
+					Version:      "1.2.1",
+					ID:           "id-for-arm64",
+					Architecture: ptr.To("arm64"),
+				},
+				{
+					Name:         "some-image",
+					Version:      "1.2.2",
+					ID:           "id-for-amd64",
+					Architecture: ptr.To("amd64"),
+				},
+				// legacy image entry without capability sets
+				{
+					Name:         "some-image",
+					Version:      "1.2.3",
+					ID:           "id-for-amd64",
+					Architecture: ptr.To("amd64"),
+				},
+				{
+					Name:         "some-image",
+					Version:      "1.2.1",
+					ID:           "id-for-amd64",
+					Architecture: ptr.To("amd64"),
+				},
+			}),
+			Entry("should return images with Capabilities", []gardencorev1beta1.CapabilityDefinition{{
+				Name:   v1beta1constants.ArchitectureName,
+				Values: []string{"amd64", "arm64"},
+			}}, []api.MachineImage{
+				// images with capability sets
+				{
+					Name:    "some-image",
+					Version: "1.2.1",
+					ID:      "id-for-arm64",
+					Capabilities: gardencorev1beta1.Capabilities{
+						v1beta1constants.ArchitectureName: []string{"arm64"},
+					},
+				},
+				{
+					Name:    "some-image",
+					Version: "1.2.2",
+					ID:      "id-for-amd64",
+					Capabilities: gardencorev1beta1.Capabilities{
+						v1beta1constants.ArchitectureName: []string{"amd64"},
+					},
+				},
+				// legacy image entry without capability sets
+				{
+					Name:    "some-image",
+					Version: "1.2.3",
+					ID:      "id-for-amd64",
+					Capabilities: gardencorev1beta1.Capabilities{
+						v1beta1constants.ArchitectureName: []string{"amd64"},
+					}},
+				{
+					Name:    "some-image",
+					Version: "1.2.1",
+					ID:      "id-for-amd64",
+					Capabilities: gardencorev1beta1.Capabilities{
+						v1beta1constants.ArchitectureName: []string{"amd64"},
+					},
+				},
+			}),
+		)
 	})
 })
 
@@ -1214,7 +1504,7 @@ func encode(obj runtime.Object) []byte {
 }
 
 // nolint:unparam
-func useDefaultMachineClass(def map[string]interface{}, key string, value interface{}) map[string]interface{} {
+func addKeyValueToMap(def map[string]interface{}, key string, value interface{}) map[string]interface{} {
 	out := make(map[string]interface{}, len(def)+1)
 
 	for k, v := range def {

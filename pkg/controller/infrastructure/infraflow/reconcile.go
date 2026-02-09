@@ -22,7 +22,6 @@ import (
 	"github.com/gardener/gardener-extension-provider-openstack/pkg/apis/openstack/helper"
 	"github.com/gardener/gardener-extension-provider-openstack/pkg/controller/infrastructure/infraflow/access"
 	"github.com/gardener/gardener-extension-provider-openstack/pkg/controller/infrastructure/infraflow/shared"
-	infrainternal "github.com/gardener/gardener-extension-provider-openstack/pkg/internal/infrastructure"
 	"github.com/gardener/gardener-extension-provider-openstack/pkg/openstack/client"
 )
 
@@ -43,7 +42,7 @@ func (fctx *FlowContext) Reconcile(ctx context.Context) error {
 
 	state := fctx.computeInfrastructureState()
 	status := fctx.computeInfrastructureStatus()
-	return infrainternal.PatchProviderStatusAndState(ctx, fctx.client, fctx.infra, status, state)
+	return PatchProviderStatusAndState(ctx, fctx.client, fctx.infra, status, state)
 }
 
 func (fctx *FlowContext) buildReconcileGraph() *flow.Graph {
@@ -289,7 +288,7 @@ func (fctx *FlowContext) ensureSubnet(ctx context.Context) error {
 	desired := &subnets.Subnet{
 		Name:           fctx.defaultSubnetName(),
 		NetworkID:      networkID,
-		CIDR:           fctx.workerCIDR(),
+		CIDR:           fctx.workersCIDR(),
 		IPVersion:      4,
 		DNSNameservers: fctx.cloudProfileConfig.DNSServers,
 	}
@@ -477,14 +476,19 @@ func (fctx *FlowContext) ensureShareNetwork(ctx context.Context) error {
 		return nil
 	}
 
+	sharedFilesystemClient, err := fctx.openstackClientFactory.SharedFilesystem(client.WithRegion(fctx.infra.Spec.Region))
+	if err != nil {
+		return err
+	}
+
 	log := shared.LogFromContext(ctx)
 	networkID := ptr.Deref(fctx.state.Get(IdentifierNetwork), "")
 	subnetID := ptr.Deref(fctx.state.Get(IdentifierSubnet), "")
 	current, err := findExisting(ctx, fctx.state.Get(IdentifierShareNetwork),
 		fctx.defaultSharedNetworkName(),
-		fctx.sharedFilesystem.GetShareNetwork,
+		sharedFilesystemClient.GetShareNetwork,
 		func(ctx context.Context, name string) ([]*sharenetworks.ShareNetwork, error) {
-			list, err := fctx.sharedFilesystem.ListShareNetworks(ctx, sharenetworks.ListOpts{
+			list, err := sharedFilesystemClient.ListShareNetworks(ctx, sharenetworks.ListOpts{
 				Name:            name,
 				NeutronNetID:    networkID,
 				NeutronSubnetID: subnetID,
@@ -506,7 +510,7 @@ func (fctx *FlowContext) ensureShareNetwork(ctx context.Context) error {
 	}
 
 	log.Info("creating...")
-	created, err := fctx.sharedFilesystem.CreateShareNetwork(ctx, sharenetworks.CreateOpts{
+	created, err := sharedFilesystemClient.CreateShareNetwork(ctx, sharenetworks.CreateOpts{
 		NeutronNetID:    networkID,
 		NeutronSubnetID: subnetID,
 		Name:            fctx.defaultSharedNetworkName(),

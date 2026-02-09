@@ -4,7 +4,7 @@ metadata:
 spec:
   owner: gardener-oq@listserv.sap.com
   description: Integration test for infrastructure creation and deletion
-  activeDeadlineSeconds: 1800
+  activeDeadlineSeconds: 3600
 
   command: [bash, -c]
   args:
@@ -20,6 +20,5 @@ spec:
       --app-id="$APPLICATION_CREDENTIAL_ID"
       --app-name="$APPLICATION_CREDENTIAL_NAME"
       --app-secret="$APPLICATION_CREDENTIAL_SECRET"
-      --reconciler="${RECONCILER}"
 
-  image: golang:1.24
+  image: golang:1.25

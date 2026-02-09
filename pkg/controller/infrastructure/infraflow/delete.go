@@ -12,7 +12,6 @@ import (
 	"k8s.io/utils/ptr"
 
 	"github.com/gardener/gardener-extension-provider-openstack/pkg/controller/infrastructure/infraflow/shared"
-	"github.com/gardener/gardener-extension-provider-openstack/pkg/internal/infrastructure"
 	"github.com/gardener/gardener-extension-provider-openstack/pkg/openstack/client"
 )
 
@@ -61,7 +60,7 @@ func (fctx *FlowContext) buildDeleteGraph() *flow.Graph {
 			if routerID == nil {
 				return nil
 			}
-			return infrastructure.CleanupKubernetesRoutes(ctx, fctx.networking, *routerID, infrastructure.WorkersCIDR(fctx.config))
+			return fctx.cleanupKubernetesRoutes(ctx, *routerID)
 		},
 		shared.Timeout(defaultTimeout),
 		shared.Dependencies(recoverIDs),
@@ -72,7 +71,7 @@ func (fctx *FlowContext) buildDeleteGraph() *flow.Graph {
 			if subnetID == nil {
 				return nil
 			}
-			return infrastructure.CleanupKubernetesLoadbalancers(ctx, shared.LogFromContext(ctx), fctx.loadbalancing, *subnetID, fctx.infra.Namespace)
+			return fctx.cleanupKubernetesLoadbalancers(ctx, shared.LogFromContext(ctx), *subnetID)
 		},
 		shared.Timeout(defaultTimeout),
 		shared.Dependencies(recoverIDs),
@@ -251,14 +250,19 @@ func (fctx *FlowContext) deleteShareNetwork(ctx context.Context) error {
 		return nil
 	}
 
+	sharedFilesystemClient, err := fctx.openstackClientFactory.SharedFilesystem(client.WithRegion(fctx.infra.Spec.Region))
+	if err != nil {
+		return err
+	}
+
 	log := shared.LogFromContext(ctx)
 	networkID := ptr.Deref(fctx.state.Get(IdentifierNetwork), "")
 	subnetID := ptr.Deref(fctx.state.Get(IdentifierSubnet), "")
 	current, err := findExisting(ctx, fctx.state.Get(IdentifierShareNetwork),
 		fctx.defaultSharedNetworkName(),
-		fctx.sharedFilesystem.GetShareNetwork,
+		sharedFilesystemClient.GetShareNetwork,
 		func(ctx context.Context, name string) ([]*sharenetworks.ShareNetwork, error) {
-			list, err := fctx.sharedFilesystem.ListShareNetworks(ctx, sharenetworks.ListOpts{
+			list, err := sharedFilesystemClient.ListShareNetworks(ctx, sharenetworks.ListOpts{
 				Name:            name,
 				NeutronNetID:    networkID,
 				NeutronSubnetID: subnetID,
@@ -273,7 +277,7 @@ func (fctx *FlowContext) deleteShareNetwork(ctx context.Context) error {
 	}
 	if current != nil {
 		log.Info("deleting...", "shareNetwork", current.ID)
-		if err := fctx.sharedFilesystem.DeleteShareNetwork(ctx, current.ID); client.IgnoreNotFoundError(err) != nil {
+		if err := sharedFilesystemClient.DeleteShareNetwork(ctx, current.ID); client.IgnoreNotFoundError(err) != nil {
 			return err
 		}
 	}
